@@ -1,0 +1,43 @@
+@import 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap';
+@import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
+
+@utility card-shadow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 6px 20px rgba(0, 0, 0, 0.06);
+}
+
+@utility card-shadow-hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 12px 32px rgba(0, 0, 0, 0.08);
+}
+
+@utility sidebar-shadow {
+  box-shadow: 1px 0 0 #E2E8F0;
+}
+
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  background-color: #F8FAFC;
+  color: #0F172A;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}

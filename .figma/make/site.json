@@ -1,0 +1,10 @@
+{
+  "description": "Connect local residents with volunteers to report and resolve community issues, fostering collaboration and engagement for a better neighborhood.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
