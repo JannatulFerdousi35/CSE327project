@@ -1,6 +1,19 @@
-import { useState } from 'react'
-import { Send, Bot, CheckCircle, AlertTriangle } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Send, Bot, CheckCircle, FileText } from 'lucide-react'
 import type { Page } from '../App'
+
+type PlanStep = { title: string; description: string; timeframe: string }
+
+type GeneratedPlan = {
+  problem: string
+  steps: PlanStep[]
+  volunteers: string
+  duration: string
+  materials: string[]
+  budget: string
+  safety: string
+  expectedOutcome: string
+}
 
 type Props = { onNavigate: (page: Page) => void }
 
@@ -12,40 +25,7 @@ const quickActions = [
   { icon: '🎯', label: 'Prioritize Community Issues', desc: 'Which problem needs attention first?' },
 ]
 
-const samplePlan = {
-  problem: 'Waterlogging on the road near Jamurki Primary School.',
-  steps: [
-    'Identify the blocked drainage points near the school gate',
-    'Organise 8–10 volunteers from the local community',
-    'Arrange shovels, gloves, and waste bags',
-    'Clean all blocked drainage channels manually',
-    'Monitor the road condition after the next rainfall',
-  ],
-  volunteers: '8–10 people',
-  time: '1–2 days',
-  materials: ['Shovels (5)', 'Rubber gloves (10 pairs)', 'Waste bags (20)', 'Sandbags (10)'],
-  budget: '৳3,000–৳5,000',
-  safety: 'Wear gloves at all times. Avoid working in active rain. Keep children away from the work area.',
-}
-
 type Message = { id: number; role: 'user' | 'ai'; text: string }
-
-const aiReplies: Record<string, string> = {
-  solve: `Here is a step-by-step plan for the Jamurki road waterlogging:\n\n1. Identify blocked drain points\n2. Organise 8–10 volunteers\n3. Arrange tools: shovels, gloves, sandbags\n4. Clear the drain in sections\n5. Monitor after next rainfall\n\nEstimated cost: ৳3,000–৳5,000\nEstimated time: 1–2 days`,
-  volunteer: `For this road waterlogging issue:\n\nRequired: 8–10 volunteers\nSkills needed: General labour (no special skills)\nRecommended schedule: Early morning (7–11 AM) to avoid heat\n\nTip: Contact the local Union Parishad to coordinate volunteers.`,
-  material: `Materials needed for drain clearing:\n\n• 5 shovels\n• 10 pairs rubber gloves\n• 20 waste bags\n• 10 sandbags (temporary barrier)\n• 2 rakes\n\nEstimated cost: ৳1,500–৳2,000\nAvailable at: Local hardware store or Union Parishad store`,
-  budget: `Estimated budget for drain repair:\n\nLabour (volunteer): ৳0\nShovels (5): ৳1,500\nGloves (10 pairs): ৳300\nWaste bags (20): ৳200\nSandbags (10): ৳500\nMiscellaneous: ৳500\n\nTotal: ৳3,000–৳5,000\n\n* These are estimates. Actual costs may vary.`,
-  default: `I can help you plan how to solve community problems step by step. Try asking:\n\n• "How do we solve the flooding near the school?"\n• "How many volunteers do we need?"\n• "What materials are required?"\n• "Estimate the cost of this project"`,
-}
-
-function findReply(text: string): string {
-  const lower = text.toLowerCase()
-  if (lower.includes('volunteer') || lower.includes('people')) return aiReplies.volunteer
-  if (lower.includes('material') || lower.includes('tool') || lower.includes('supply')) return aiReplies.material
-  if (lower.includes('cost') || lower.includes('budget') || lower.includes('taka') || lower.includes('money')) return aiReplies.budget
-  if (lower.includes('solve') || lower.includes('plan') || lower.includes('flood') || lower.includes('road') || lower.includes('water')) return aiReplies.solve
-  return aiReplies.default
-}
 
 export default function AISuggestionsPage({ onNavigate: _ }: Props) {
   const [messages, setMessages] = useState<Message[]>([
@@ -53,18 +33,54 @@ export default function AISuggestionsPage({ onNavigate: _ }: Props) {
   ])
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
+  const [error, setError] = useState('')
   const [planUsed, setPlanUsed] = useState(false)
+  const [currentPlan, setCurrentPlan] = useState<GeneratedPlan | null>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
 
-  const send = (text: string) => {
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, typing])
+
+  const send = async (text: string) => {
     if (!text.trim() || typing) return
+
     const userMsg: Message = { id: Date.now(), role: 'user', text }
     setMessages((p) => [...p, userMsg])
     setInput('')
     setTyping(true)
-    setTimeout(() => {
+    setError('')
+
+    try {
+      const response = await fetch('http://localhost:5000/api/ai/planner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ message: text }),
+      })
+      const data = await response.json() as { success?: boolean; response?: string; message?: string; plan?: GeneratedPlan }
+
+      if (!response.ok || !data.success || !data.response) {
+        throw new Error(data.message || 'AI planner could not process your request.')
+      }
+
+      setMessages((p) => [...p, { id: Date.now() + 1, role: 'ai', text: data.response! }])
+      if (data.plan) {
+        setCurrentPlan(data.plan)
+        setPlanUsed(false)
+      }
+    } catch (err) {
+      console.error('AI planner error:', err)
+      const errorMsg = err instanceof TypeError
+        ? 'Unable to connect to the AI service. Is the backend running?'
+        : err instanceof Error
+          ? err.message
+          : 'Something went wrong. Please try again.'
+      setError(errorMsg)
+      setMessages((p) => [...p, { id: Date.now() + 1, role: 'ai', text: `Sorry, I encountered an error: ${errorMsg}` }])
+    } finally {
       setTyping(false)
-      setMessages((p) => [...p, { id: Date.now() + 1, role: 'ai', text: findReply(text) }])
-    }, 1600)
+    }
   }
 
   return (
@@ -78,7 +94,7 @@ export default function AISuggestionsPage({ onNavigate: _ }: Props) {
       </div>
 
       <div className="grid grid-cols-3 gap-5">
-        {/* Left — Quick actions + suggested plan */}
+        {/* Left — Quick actions + sample plan */}
         <div className="space-y-5">
           {/* Quick action cards */}
           <div className="bg-white rounded-2xl card-shadow p-5">
@@ -88,7 +104,8 @@ export default function AISuggestionsPage({ onNavigate: _ }: Props) {
                 <button
                   key={a.label}
                   onClick={() => send(a.label)}
-                  className="w-full flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all cursor-pointer text-left group"
+                  disabled={typing}
+                  className="w-full flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all cursor-pointer text-left group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="text-xl flex-shrink-0">{a.icon}</span>
                   <div>
@@ -112,7 +129,8 @@ export default function AISuggestionsPage({ onNavigate: _ }: Props) {
               <button
                 key={q}
                 onClick={() => send(q.replace(/"/g, ''))}
-                className="block w-full text-left text-xs text-blue-600 hover:text-blue-800 py-1.5 cursor-pointer transition-colors font-500"
+                disabled={typing}
+                className="block w-full text-left text-xs text-blue-600 hover:text-blue-800 py-1.5 cursor-pointer transition-colors font-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {q}
               </button>
@@ -168,6 +186,7 @@ export default function AISuggestionsPage({ onNavigate: _ }: Props) {
                   </div>
                 </div>
               )}
+              <div ref={chatEndRef} />
             </div>
 
             <div className="p-4 border-t border-slate-100 flex gap-2">
@@ -176,8 +195,9 @@ export default function AISuggestionsPage({ onNavigate: _ }: Props) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send(input)}
-                placeholder="Describe a community problem..."
-                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition-all"
+                placeholder={typing ? "AI is thinking..." : "Describe a community problem..."}
+                disabled={typing}
+                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition-all disabled:opacity-50"
               />
               <button
                 onClick={() => send(input)}
@@ -189,71 +209,100 @@ export default function AISuggestionsPage({ onNavigate: _ }: Props) {
             </div>
           </div>
 
-          {/* Suggested Action Plan — always visible */}
+          {/* Action Plan */}
           <div className="bg-white rounded-2xl card-shadow p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-sm font-700 text-slate-800">Sample Action Plan</h3>
-                <p className="text-xs text-slate-400 mt-0.5">AI-generated plan — verify with local knowledge</p>
+                <h3 className="text-sm font-700 text-slate-800">Action Plan</h3>
+                {currentPlan ? (
+                  <p className="text-xs text-slate-400 mt-0.5">Generated by AI for your community problem</p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-0.5">Describe a community problem above to generate an action plan</p>
+                )}
               </div>
-              <span className="text-[11px] px-2.5 py-1 bg-orange-100 text-orange-700 rounded-full font-700 flex items-center gap-1">
-                <AlertTriangle size={11} /> AI Suggestion
-              </span>
+              {currentPlan && (
+                <span className="text-[11px] px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full font-700 flex items-center gap-1">
+                  <CheckCircle size={11} /> AI Generated
+                </span>
+              )}
             </div>
 
-            <div className="bg-slate-50 rounded-xl p-3.5 mb-4">
-              <div className="text-xs text-slate-500 mb-1">Problem</div>
-              <div className="text-sm font-600 text-slate-800">{samplePlan.problem}</div>
-            </div>
-
-            <div className="mb-4">
-              <div className="text-xs font-700 text-slate-700 mb-2.5">Suggested Steps</div>
-              <div className="space-y-2">
-                {samplePlan.steps.map((step, i) => (
-                  <div key={i} className="flex gap-3 items-start">
-                    <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-700 flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</div>
-                    <span className="text-sm text-slate-600 leading-snug">{step}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              {[
-                { emoji: '👥', label: 'Volunteers', value: samplePlan.volunteers },
-                { emoji: '⏱️', label: 'Duration', value: samplePlan.time },
-                { emoji: '💰', label: 'Estimated Cost', value: samplePlan.budget },
-                { emoji: '⚠️', label: 'Safety Note', value: samplePlan.safety.slice(0, 40) + '...' },
-              ].map((item) => (
-                <div key={item.label} className="bg-slate-50 rounded-xl p-3">
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <span>{item.emoji}</span>
-                    <div className="text-[11px] font-700 text-slate-500">{item.label}</div>
-                  </div>
-                  <div className="text-xs font-700 text-slate-800">{item.value}</div>
+            {currentPlan ? (
+              <>
+                <div className="bg-slate-50 rounded-xl p-3.5 mb-4">
+                  <div className="text-xs text-slate-500 mb-1">Problem</div>
+                  <div className="text-sm font-600 text-slate-800">{currentPlan.problem}</div>
                 </div>
-              ))}
-            </div>
 
-            <div className="mb-4">
-              <div className="text-xs font-700 text-slate-700 mb-2">Materials Needed</div>
-              <div className="flex flex-wrap gap-2">
-                {samplePlan.materials.map((m) => (
-                  <span key={m} className="text-xs px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full font-600">{m}</span>
-                ))}
+                <div className="mb-4">
+                  <div className="text-xs font-700 text-slate-700 mb-2.5">Suggested Steps</div>
+                  <div className="space-y-2">
+                    {currentPlan.steps.map((step, i) => (
+                      <div key={i} className="flex gap-3 items-start">
+                        <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-700 flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</div>
+                        <div className="flex-1">
+                          <div className="text-sm font-600 text-slate-700">{step.title}</div>
+                          <div className="text-xs text-slate-500 leading-snug mt-0.5">{step.description}</div>
+                          {step.timeframe && <div className="text-[11px] text-blue-600 mt-0.5 font-600">⏱ {step.timeframe}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  {[
+                    { emoji: '👥', label: 'Volunteers', value: currentPlan.volunteers },
+                    { emoji: '⏱️', label: 'Duration', value: currentPlan.duration },
+                    { emoji: '💰', label: 'Estimated Cost', value: currentPlan.budget },
+                    { emoji: '⚠️', label: 'Safety Note', value: currentPlan.safety.length > 50 ? currentPlan.safety.slice(0, 50) + '...' : currentPlan.safety },
+                  ].map((item) => (
+                    <div key={item.label} className="bg-slate-50 rounded-xl p-3">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span>{item.emoji}</span>
+                        <div className="text-[11px] font-700 text-slate-500">{item.label}</div>
+                      </div>
+                      <div className="text-xs font-700 text-slate-800">{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mb-4">
+                  <div className="text-xs font-700 text-slate-700 mb-2">Materials Needed</div>
+                  <div className="flex flex-wrap gap-2">
+                    {currentPlan.materials.map((m) => (
+                      <span key={m} className="text-xs px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full font-600">{m}</span>
+                    ))}
+                  </div>
+                </div>
+
+                {currentPlan.expectedOutcome && (
+                  <div className="bg-green-50 border border-green-100 rounded-xl p-3 mb-4">
+                    <div className="text-[11px] font-700 text-green-700 mb-0.5">Expected Outcome</div>
+                    <div className="text-xs text-green-800">{currentPlan.expectedOutcome}</div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setPlanUsed(true)}
+                  className={`w-full py-3.5 rounded-xl text-sm font-700 transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    planUsed
+                      ? 'bg-green-50 border-2 border-green-400 text-green-700'
+                      : 'bg-green-500 text-white hover:bg-green-600 shadow-lg shadow-green-100'
+                  }`}
+                >
+                  {planUsed ? <><CheckCircle size={16} /> Plan Adopted!</> : '✅ Use This Plan'}
+                </button>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
+                  <FileText size={24} className="text-slate-400" />
+                </div>
+                <p className="text-sm text-slate-500 font-500">Describe a community problem above to generate an action plan.</p>
+                <p className="text-xs text-slate-400 mt-1">The AI will create a tailored plan with steps, materials, budget, and more.</p>
               </div>
-            </div>
-
-            <button
-              onClick={() => setPlanUsed(true)}
-              className={`w-full py-3.5 rounded-xl text-sm font-700 transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                planUsed
-                  ? 'bg-green-50 border-2 border-green-400 text-green-700'
-                  : 'bg-green-500 text-white hover:bg-green-600 shadow-lg shadow-green-100'
-              }`}
-            >
-              {planUsed ? <><CheckCircle size={16} /> Plan Adopted!</> : '✅ Use This Plan'}
-            </button>
+            )}
           </div>
         </div>
       </div>

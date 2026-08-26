@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
+require("dotenv").config({ path: __dirname + "/.env" });
 const { Pool } = require("pg");
 const { GoogleGenAI } = require("@google/genai");
 const bcrypt = require("bcryptjs");
@@ -694,6 +694,139 @@ app.get("/api/ai/test", async (req, res) => {
       success: false,
       message: "Gemini AI request failed.",
       error: error.message || "Unknown Gemini error",
+    });
+  }
+});
+
+app.post("/api/ai/planner", async (req, res) => {
+  const { message } = req.body || {};
+
+  if (typeof message !== "string" || !message.trim()) {
+    return res.status(400).json({
+      success: false,
+      message: "A non-empty message is required.",
+    });
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({
+      success: false,
+      message: "AI service is not configured on the server.",
+    });
+  }
+
+  try {
+    const systemInstruction = `You are the Community Action Bridge AI Planner for Bangladesh. Your role is to help community members plan practical solutions to local problems such as flooding, drainage issues, road damage, sanitation, garbage collection, school repairs, electricity outages, and environmental concerns.
+
+You MUST respond with valid JSON matching this exact schema. Do not include any text outside the JSON object:
+
+{
+  "response": "<A friendly conversational message summarizing the plan in 2-4 sentences>",
+  "plan": {
+    "problem": "<One-line description of the community problem>",
+    "steps": [
+      {
+        "title": "<Short step title>",
+        "description": "<Brief description of what to do>",
+        "timeframe": "<When to do it, e.g. 'Day 1-2', 'Week 1'>"
+      }
+    ],
+    "volunteers": "<Number or range of volunteers needed>",
+    "duration": "<Total estimated duration of the project>",
+    "materials": ["<material 1>", "<material 2>"],
+    "budget": "<Estimated cost in Taka (৳)>",
+    "safety": "<Key safety precautions>",
+    "expectedOutcome": "<What the community can expect after completing the plan>"
+  }
+}
+
+Guidelines:
+- Give practical, actionable advice suited to Bangladesh communities and Union Parishad governance.
+- Use simple, clear language. Use Taka (৳) for any cost estimates.
+- Suggest realistic volunteer counts, timelines, materials, and budgets (3-8 steps).
+- Where appropriate, mention coordination with local authorities (Union Parishad, Ward Councillor, Upazila engineers).
+- Do not invent facts. Base advice on general best practices for community development in Bangladesh.
+- The "response" field should be a warm, conversational summary. The "plan" field should contain the structured details.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: message.trim(),
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "object",
+          properties: {
+            response: { type: "string" },
+            plan: {
+              type: "object",
+              properties: {
+                problem: { type: "string" },
+                steps: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string" },
+                      description: { type: "string" },
+                      timeframe: { type: "string" },
+                    },
+                    required: ["title", "description", "timeframe"],
+                  },
+                },
+                volunteers: { type: "string" },
+                duration: { type: "string" },
+                materials: { type: "array", items: { type: "string" } },
+                budget: { type: "string" },
+                safety: { type: "string" },
+                expectedOutcome: { type: "string" },
+              },
+              required: [
+                "problem",
+                "steps",
+                "volunteers",
+                "duration",
+                "materials",
+                "budget",
+                "safety",
+                "expectedOutcome",
+              ],
+            },
+          },
+          required: ["response", "plan"],
+        },
+      },
+    });
+
+    const rawText = response.text;
+
+    if (!rawText || !rawText.trim()) {
+      throw new Error("Gemini returned an empty response.");
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText.trim());
+    } catch {
+      console.error("Failed to parse Gemini JSON:", rawText);
+      throw new Error("Gemini returned invalid JSON.");
+    }
+
+    if (!parsed.response || !parsed.plan) {
+      throw new Error("Gemini response missing required fields.");
+    }
+
+    res.json({
+      success: true,
+      response: parsed.response,
+      plan: parsed.plan,
+    });
+  } catch (error) {
+    console.error("AI planner error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "AI planner is temporarily unavailable. Please try again.",
     });
   }
 });
