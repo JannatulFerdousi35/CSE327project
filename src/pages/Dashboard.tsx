@@ -188,7 +188,7 @@ export default function Dashboard({ onNavigate, user }: Props) {
             <MapPin size={15} /> {user ? [user.upazila, user.district, user.division].filter(Boolean).join(', ') || 'Bangladesh' : 'Mirzapur, Tangail'}
           </div>
           <h1 className="text-2xl md:text-3xl font-800 mb-1.5 leading-tight">
-            {user ? `Assalaamu Alaikum, ${user.name.split(' ')[0]}` : 'Make Your Community Better'}
+            {user ? `Hello, ${user.name.split(' ')[0]}` : 'Make Your Community Better'}
           </h1>
           <p className="text-green-100 text-sm mb-6 leading-relaxed">
             আপনার এলাকার সমস্যা রিপোর্ট করুন এবং সমাধানে অংশ নিন
@@ -237,7 +237,7 @@ export default function Dashboard({ onNavigate, user }: Props) {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="font-700 text-slate-800 text-base">Recent Community Issues</h2>
-              <p className="text-xs text-slate-400 mt-0.5">বাস্তব রিপোর্ট করা সমস্যাগুলো</p>
+              <p className="text-xs text-slate-400 mt-0.5">সাম্প্রতিক রিপোর্ট করা সমস্যাগুলো</p>
             </div>
             {!loading && !error && issues.length > 0 && (
               <span className="text-xs px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full font-700">
