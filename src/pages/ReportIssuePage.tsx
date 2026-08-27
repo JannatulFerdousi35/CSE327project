@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Camera, MapPin, Navigation, ChevronRight, X, Upload } from 'lucide-react'
 import { CircleMarker, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { Icon, type LatLngExpression } from 'leaflet'
-import type { Page } from '../App'
+import type { Page, AuthUser } from '../App'
 
-type Props = { onNavigate: (page: Page, issueId?: number) => void }
+type Props = { onNavigate: (page: Page, issueId?: number) => void; user: AuthUser | null }
 
 const bangladeshCenter: LatLngExpression = [23.685, 90.3563]
 const locationMarker = new Icon({
@@ -152,7 +152,7 @@ async function readApiResponse(response: Response) {
   }
 }
 
-export default function ReportIssuePage({ onNavigate }: Props) {
+export default function ReportIssuePage({ onNavigate, user }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [step, setStep] = useState(1)
   const [category, setCategory] = useState('')
@@ -359,6 +359,7 @@ export default function ReportIssuePage({ onNavigate }: Props) {
         const duplicateResponse = await fetch('http://localhost:5000/api/issues/check-duplicate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({
             title,
             description,
@@ -400,8 +401,8 @@ export default function ReportIssuePage({ onNavigate }: Props) {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({
-          user_id: 1,
           title,
           description,
           category,
@@ -432,7 +433,6 @@ export default function ReportIssuePage({ onNavigate }: Props) {
             : photo.url
 
           return {
-            uploaded_by: 1,
             image_url: imageUrl,
             caption: null,
             is_primary: index === 0,
@@ -448,6 +448,7 @@ export default function ReportIssuePage({ onNavigate }: Props) {
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
           body: JSON.stringify(photoPayload),
         })
 

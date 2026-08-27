@@ -77,6 +77,48 @@ app.get("/api/issues", async (req, res) => {
     });
   }
 });
+
+// My reports — authenticated user's own issues
+app.get("/api/issues/my-reports", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, user_id, title, description, category, division, district, upazila,
+              union_name, village, image_url, priority, status, created_at
+       FROM issues
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ success: true, issues: result.rows });
+  } catch (error) {
+  console.error("MY REPORTS ERROR:", error);
+
+  res.status(500).json({
+    success: false,
+    message: "Failed to fetch issue.",
+    error: error.message
+  });
+}
+});
+
+// Issue stats — public counts for homepage
+app.get("/api/issues/stats", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('reported','new','active','pending','approved','in progress'))::int AS active,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('completed','resolved'))::int AS resolved,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'cancelled')::int AS cancelled
+      FROM issues
+    `);
+    const row = result.rows[0] || { total: 0, active: 0, resolved: 0, cancelled: 0 };
+    res.json({ success: true, stats: { total: row.total, active: row.active, resolved: row.resolved, cancelled: row.cancelled } });
+  } catch (error) {
+    console.error("Error fetching issue stats:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch stats." });
+  }
+});
 app.get("/api/issues/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -162,10 +204,9 @@ app.patch("/api/admin/issues/:issueId/status", requireAdmin, async (req, res) =>
   }
 });
 
-app.post("/api/issues", async (req, res) => {
+app.post("/api/issues", requireAuth, async (req, res) => {
   try {
     const {
-      user_id,
       title,
       description,
       category,
@@ -204,7 +245,7 @@ app.post("/api/issues", async (req, res) => {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *`,
       [
-        user_id || null,
+        req.user.id,
         title,
         description,
         category,
@@ -432,7 +473,7 @@ app.get("/api/issues/:issueId/images", async (req, res) => {
   }
 });
 
-app.post("/api/issues/:issueId/images", async (req, res) => {
+app.post("/api/issues/:issueId/images", requireAuth, async (req, res) => {
   const issueId = Number(req.params.issueId);
 
   if (!Number.isInteger(issueId) || issueId <= 0) {
@@ -442,7 +483,7 @@ app.post("/api/issues/:issueId/images", async (req, res) => {
     });
   }
 
-  const { uploaded_by, image_url, caption, is_primary } = req.body;
+  const { image_url, caption, is_primary } = req.body;
 
   if (typeof image_url !== "string" || image_url.trim() === "") {
     return res.status(400).json({
@@ -476,7 +517,7 @@ app.post("/api/issues/:issueId/images", async (req, res) => {
       RETURNING *`,
       [
         issueId,
-        uploaded_by || null,
+        req.user.id,
         image_url.trim(),
         caption || null,
         is_primary ?? false,
@@ -2054,6 +2095,56 @@ app.get("/api/issues/:issueId/volunteer-status", requireAuth, async (req, res) =
       success: false,
       message: "Unable to check volunteer status."
     });
+  }
+});
+
+// List volunteers who joined a specific issue
+app.get("/api/issues/:issueId/joined-volunteers", async (req, res) => {
+  try {
+    const issueId = Number(req.params.issueId);
+    if (!Number.isInteger(issueId) || issueId <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid issue ID." });
+    }
+
+    const result = await pool.query(
+      `SELECT u.id, u.name, iv.joined_at, iv.status AS volunteer_status
+       FROM issue_volunteers iv
+       INNER JOIN users u ON u.id = iv.user_id
+       WHERE iv.issue_id = $1
+       ORDER BY iv.joined_at ASC`,
+      [issueId]
+    );
+
+    res.json({ success: true, volunteers: result.rows });
+  } catch (error) {
+    console.error("Joined volunteers error:", error);
+    res.status(500).json({ success: false, message: "Unable to load volunteers." });
+  }
+});
+
+// Leave an issue as a volunteer
+app.delete("/api/issues/:issueId/volunteer", requireAuth, async (req, res) => {
+  try {
+    const issueId = Number(req.params.issueId);
+    if (!Number.isInteger(issueId) || issueId <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid issue ID." });
+    }
+
+    const result = await pool.query(
+      `DELETE FROM issue_volunteers
+       WHERE issue_id = $1 AND user_id = $2
+       RETURNING id`,
+      [issueId, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "You have not joined this issue." });
+    }
+
+    res.json({ success: true, message: "You left this issue." });
+  } catch (error) {
+    console.error("Volunteer leave error:", error);
+    res.status(500).json({ success: false, message: "Unable to leave issue." });
   }
 });
 

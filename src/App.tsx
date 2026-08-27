@@ -148,13 +148,14 @@ export default function App() {
       )}
 
       {currentPage === 'report-issue' && (
-        <ReportIssuePage onNavigate={navigate} />
+        <ReportIssuePage onNavigate={navigate} user={user} />
       )}
 
       {currentPage === 'issue-details' && (
         <IssueDetailsPage
           onNavigate={navigate}
           issueId={selectedIssueId}
+          user={user}
         />
       )}
 

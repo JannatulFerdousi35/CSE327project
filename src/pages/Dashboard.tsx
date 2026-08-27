@@ -101,6 +101,7 @@ export default function Dashboard({ onNavigate, user }: Props) {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('All')
   const [categoryFilter, setCategoryFilter] = useState<string>('All')
+  const [stats, setStats] = useState<{ total: number; active: number; resolved: number; cancelled: number } | null>(null)
 
   useEffect(() => {
     const fetchIssues = async () => {
@@ -124,7 +125,20 @@ export default function Dashboard({ onNavigate, user }: Props) {
       }
     }
 
+    const fetchStats = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/issues/stats')
+        const data = await response.json() as { success: boolean; stats?: { total: number; active: number; resolved: number; cancelled: number } }
+        if (response.ok && data.success && data.stats) {
+          setStats(data.stats)
+        }
+      } catch {
+        // Stats fetch is non-critical; fall back to client-computed values
+      }
+    }
+
     fetchIssues()
+    fetchStats()
   }, [retryCount])
 
   const handleCancelIssue = async (issueId: number) => {
@@ -153,13 +167,13 @@ export default function Dashboard({ onNavigate, user }: Props) {
     }
   }
 
-  const totalIssues = issues.length
-  const activeIssues = issues.filter((issue) => isActiveStatus(issue.status)).length
-  const completedIssues = issues.filter((issue) => {
+  const totalIssues = stats?.total ?? issues.length
+  const activeIssues = stats?.active ?? issues.filter((issue) => isActiveStatus(issue.status)).length
+  const completedIssues = stats?.resolved ?? issues.filter((issue) => {
     const s = (issue.status || '').toLowerCase()
     return s === 'completed' || s === 'resolved'
   }).length
-  const cancelledIssues = issues.filter((issue) => (issue.status || '').toLowerCase() === 'cancelled').length
+  const cancelledIssues = stats?.cancelled ?? issues.filter((issue) => (issue.status || '').toLowerCase() === 'cancelled').length
 
   const uniqueStatuses = [...new Set(issues.map((i) => i.status || 'Reported'))].sort()
   const uniqueCategories = [...new Set(issues.map((i) => i.category))].sort()

@@ -66,17 +66,17 @@ export default function ProfilePage({ onNavigate, user, onLogout }: Props) {
   const [issuesLoading, setIssuesLoading] = useState(true)
   const [issuesError, setIssuesError] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
+  const [cancellingId, setCancellingId] = useState<number | null>(null)
 
   useEffect(() => {
     setIssuesLoading(true)
     setIssuesError(false)
 
-    fetch('http://localhost:5000/api/issues')
+    fetch('http://localhost:5000/api/issues/my-reports', { credentials: 'include' })
       .then(async (response) => {
         const data = await response.json() as { success: boolean; issues?: Issue[] }
         if (!response.ok || !data.success) throw new Error('Failed')
-        const myIssues = (data.issues || []).filter((issue) => user && issue.user_id === user.id)
-        setIssues(myIssues)
+        setIssues(data.issues || [])
       })
       .catch(() => setIssuesError(true))
       .finally(() => setIssuesLoading(false))
@@ -86,6 +86,37 @@ export default function ProfilePage({ onNavigate, user, onLogout }: Props) {
     setSaveMessage('Profile display updated.')
     setEditMode(false)
     setTimeout(() => setSaveMessage(''), 3000)
+  }
+
+  const isCancellable = (status: string | null) => {
+    const s = (status || '').toLowerCase()
+    return s !== 'completed' && s !== 'resolved' && s !== 'cancelled' && s !== 'rejected'
+  }
+
+  const handleCancelIssue = async (issueId: number) => {
+    if (cancellingId !== null) return
+    if (!window.confirm('Are you sure you want to cancel this issue?')) return
+
+    setCancellingId(issueId)
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/issues/${issueId}/cancel`, {
+        method: 'PATCH',
+        credentials: 'include',
+      })
+      const data = await response.json() as { success?: boolean; message?: string; issue?: Issue }
+
+      if (response.ok && data.success && data.issue) {
+        setIssues((prev) => prev.map((issue) => (issue.id === issueId ? { ...issue, status: data.issue!.status } : issue)))
+      } else {
+        alert(data.message || 'Unable to cancel this issue.')
+      }
+    } catch (err) {
+      console.error('Cancel failed:', err)
+      alert('Unable to cancel this issue. Please try again.')
+    } finally {
+      setCancellingId(null)
+    }
   }
 
   if (!user) {
@@ -312,7 +343,7 @@ export default function ProfilePage({ onNavigate, user, onLogout }: Props) {
                 <AlertCircle size={22} className="text-slate-300 mx-auto mb-2" />
                 <p className="text-xs text-slate-500 mb-3">Couldn't load your reports.</p>
                 <button
-                  onClick={() => { setIssuesLoading(true); setIssuesError(false); fetch('http://localhost:5000/api/issues').then(async (r) => { const d = await r.json() as { success: boolean; issues?: Issue[] }; if (r.ok && d.success) setIssues((d.issues || []).filter((i) => user && i.user_id === user.id)); else setIssuesError(true) }).catch(() => setIssuesError(true)).finally(() => setIssuesLoading(false)) }}
+                  onClick={() => { setIssuesLoading(true); setIssuesError(false); fetch('http://localhost:5000/api/issues/my-reports', { credentials: 'include' }).then(async (r) => { const d = await r.json() as { success: boolean; issues?: Issue[] }; if (r.ok && d.success) setIssues(d.issues || []); else setIssuesError(true) }).catch(() => setIssuesError(true)).finally(() => setIssuesLoading(false)) }}
                   className="inline-flex items-center gap-1.5 text-xs text-green-600 font-600 hover:text-green-700 cursor-pointer transition-colors"
                 >
                   <RefreshCw size={12} /> Try Again
@@ -344,23 +375,47 @@ export default function ProfilePage({ onNavigate, user, onLogout }: Props) {
                   const status = issue.status || 'Reported'
                   const statusInfo = statusConfig[status] || { label: status, className: 'bg-slate-50 text-slate-600 border border-slate-200' }
                   const emoji = categoryEmoji[issue.category] || '📌'
+                  const cancellable = isCancellable(status)
 
                   return (
-                    <button
-                      key={issue.id}
-                      onClick={() => onNavigate('issue-details', issue.id)}
-                      className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-slate-50 transition-all cursor-pointer group"
-                    >
-                      <span className="text-base flex-shrink-0">{emoji}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-600 text-slate-700 truncate group-hover:text-green-700 transition-colors">{issue.title}</div>
-                        <div className="text-xs text-slate-400 mt-0.5">{issue.category} · {formatRelativeTime(issue.created_at)}</div>
-                      </div>
-                      <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-600 flex-shrink-0 ${statusInfo.className}`}>
-                        {statusInfo.label}
-                      </span>
-                      <ChevronRight size={14} className="text-slate-300 flex-shrink-0 group-hover:text-green-500 transition-colors" />
-                    </button>
+                    <div key={issue.id}>
+                      <button
+                        onClick={() => onNavigate('issue-details', issue.id)}
+                        className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-slate-50 transition-all cursor-pointer group"
+                      >
+                        <span className="text-base flex-shrink-0">{emoji}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-600 text-slate-700 truncate group-hover:text-green-700 transition-colors">{issue.title}</div>
+                          <div className="text-xs text-slate-400 mt-0.5">{issue.category} · {formatRelativeTime(issue.created_at)}</div>
+                        </div>
+                        <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-600 flex-shrink-0 ${statusInfo.className}`}>
+                          {statusInfo.label}
+                        </span>
+                        <ChevronRight size={14} className="text-slate-300 flex-shrink-0 group-hover:text-green-500 transition-colors" />
+                      </button>
+                      {cancellable && (
+                        <div className="px-5 pb-3 -mt-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleCancelIssue(issue.id) }}
+                            disabled={cancellingId === issue.id}
+                            className={`text-[11px] font-600 px-3 py-1.5 rounded-lg border transition-all ${
+                              cancellingId === issue.id
+                                ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                                : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-300 cursor-pointer'
+                            }`}
+                          >
+                            {cancellingId === issue.id ? 'Cancelling...' : 'Cancel Issue'}
+                          </button>
+                        </div>
+                      )}
+                      {!cancellable && (status || '').toLowerCase() === 'cancelled' && (
+                        <div className="px-5 pb-3 -mt-1">
+                          <span className="text-[11px] font-600 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 inline-flex items-center gap-1">
+                            <XCircle size={12} /> This issue was cancelled
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   )
                 })}
               </div>

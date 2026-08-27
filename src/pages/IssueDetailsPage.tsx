@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { MapPin, Clock, Users, ChevronLeft, CheckCircle, Share2, Package } from 'lucide-react'
+import { MapPin, Clock, Users, ChevronLeft, CheckCircle, Share2, Package, XCircle } from 'lucide-react'
 import { MapContainer, Marker, TileLayer } from 'react-leaflet'
 import { Icon } from 'leaflet'
-import type { Page } from '../App'
+import type { Page, AuthUser } from '../App'
 
 type Props = {
   onNavigate: (page: Page) => void
   issueId: number | null
+  user: AuthUser | null
 }
 
 const detailsLocationMarker = new Icon({
@@ -76,22 +77,13 @@ type ActionPlan = {
   notes: string
 }
 
-type VolunteerRecommendation = {
-  volunteer_id: number
-  name: string
-  skills: string
-  location: string
-  reason: string
-  match_score: number
-}
-
 const formatDate = (date: string) => new Date(date).toLocaleDateString('en-BD', {
   year: 'numeric',
   month: 'long',
   day: 'numeric',
 })
 
-export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
+export default function IssueDetailsPage({ onNavigate, issueId, user }: Props) {
   const [issue, setIssue] = useState<Issue | null>(null)
   const [images, setImages] = useState<IssueImage[]>([])
   const [selectedImage, setSelectedImage] = useState<IssueImage | null>(null)
@@ -104,15 +96,16 @@ export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
   const [actionPlanMissing, setActionPlanMissing] = useState(false)
   const [actionPlanGenerating, setActionPlanGenerating] = useState(false)
   const [actionPlanReloadKey, setActionPlanReloadKey] = useState(0)
-  const [volunteerRecommendations, setVolunteerRecommendations] = useState<VolunteerRecommendation[]>([])
-  const [volunteerLoading, setVolunteerLoading] = useState(false)
-  const [volunteerError, setVolunteerError] = useState(false)
   const [imageAnalysis, setImageAnalysis] = useState<ImageAnalysis | null>(null)
   const [imageAnalysisLoading, setImageAnalysisLoading] = useState(false)
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false)
   const [imageAnalysisError, setImageAnalysisError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  const [joinedVolunteers, setJoinedVolunteers] = useState<{ id: number; name: string; joined_at: string }[]>([])
+  const [joinedVolunteersLoading, setJoinedVolunteersLoading] = useState(false)
+  const [leaving, setLeaving] = useState(false)
 
   useEffect(() => {
     setIssue(null)
@@ -125,9 +118,6 @@ export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
     setActionPlanError(false)
     setActionPlanMissing(false)
     setActionPlanGenerating(false)
-    setVolunteerRecommendations([])
-    setVolunteerLoading(false)
-    setVolunteerError(false)
     setVolunteered(false)
     setVolunteerActionError('')
     setError('')
@@ -304,31 +294,27 @@ export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
   }, [issueId, issue, images.length])
 
   useEffect(() => {
-    if (!issueId || !issue) return
+    if (!issueId) return
 
     let cancelled = false
-    setVolunteerLoading(true)
-    setVolunteerError(false)
+    setJoinedVolunteersLoading(true)
 
-    fetch(`http://localhost:5000/api/issues/${issueId}/recommended-volunteers`)
+    fetch(`http://localhost:5000/api/issues/${issueId}/joined-volunteers`)
       .then(async (response) => {
-        const data = await response.json() as { success?: boolean; recommendations?: VolunteerRecommendation[] }
-        if (!response.ok || !data.success) throw new Error('Volunteer recommendations failed.')
-        if (!cancelled) setVolunteerRecommendations(data.recommendations || [])
-      })
-      .catch((error) => {
-        console.error('Failed to load volunteer recommendations:', error)
-        if (!cancelled) {
-          setVolunteerRecommendations([])
-          setVolunteerError(true)
+        const data = await response.json() as { success?: boolean; volunteers?: { id: number; name: string; joined_at: string }[] }
+        if (!cancelled && response.ok && data.success) {
+          setJoinedVolunteers(data.volunteers || [])
         }
       })
+      .catch((error) => {
+        console.error('Failed to load joined volunteers:', error)
+      })
       .finally(() => {
-        if (!cancelled) setVolunteerLoading(false)
+        if (!cancelled) setJoinedVolunteersLoading(false)
       })
 
     return () => { cancelled = true }
-  }, [issueId, issue])
+  }, [issueId])
 
   useEffect(() => {
     if (!issueId || !issue) {
@@ -378,6 +364,68 @@ export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
       setVolunteerActionError('Could not join as a volunteer right now.')
     } finally {
       setVolunteerActionPending(false)
+    }
+  }
+
+  const handleLeaveAsVolunteer = async () => {
+    if (!issueId || !volunteered || leaving) return
+
+    setLeaving(true)
+    setVolunteerActionError('')
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/issues/${issueId}/volunteer`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      const data = await response.json() as { success?: boolean; message?: string }
+
+      if (response.ok && data.success) {
+        setVolunteered(false)
+        return
+      }
+
+      setVolunteerActionError(data.message || 'Could not leave as a volunteer right now.')
+    } catch (error) {
+      console.error('Failed to leave as volunteer:', error)
+      setVolunteerActionError('Could not leave as a volunteer right now.')
+    } finally {
+      setLeaving(false)
+    }
+  }
+
+  const handleCancelIssue = async () => {
+    if (!issueId || cancelling) return
+    if (!window.confirm('Are you sure you want to cancel this issue?')) return
+
+    setCancelling(true)
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/issues/${issueId}/cancel`, {
+        method: 'PATCH',
+        credentials: 'include',
+      })
+      const data = await response.json() as { success?: boolean; message?: string; issue?: Issue }
+
+      if (response.ok && data.success && data.issue) {
+        setIssue(data.issue)
+      } else {
+        alert(data.message || 'Unable to cancel this issue.')
+      }
+    } catch (err) {
+      console.error('Cancel failed:', err)
+      alert('Unable to cancel this issue. Please try again.')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  const handleShareIssue = () => {
+    const url = window.location.href
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => alert('Link copied to clipboard!')).catch(() => alert(url))
+    } else {
+      alert(url)
     }
   }
 
@@ -609,15 +657,15 @@ export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
                 </button>
                 <button
                   type="button"
-                  onClick={handleJoinAsVolunteer}
-                  disabled={volunteered || volunteerActionPending}
+                  onClick={volunteered ? handleLeaveAsVolunteer : handleJoinAsVolunteer}
+                  disabled={volunteerActionPending || leaving}
                   className={`flex flex-col items-center gap-2 py-4 rounded-xl border-2 transition-all ${
                     volunteered ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-blue-200 hover:bg-blue-50/50 text-slate-600 cursor-pointer'
-                  }`}
+                  } ${(volunteerActionPending || leaving) ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   <span className="text-2xl">🤝</span>
-                  <span className="text-xs font-700">{volunteered ? 'Joined as Volunteer' : volunteerActionPending ? 'Joining...' : 'Join as Volunteer'}</span>
-                  <span className="text-[11px] text-slate-400">Help fix this issue</span>
+                  <span className="text-xs font-700">{volunteered ? (leaving ? 'Leaving...' : 'Leave as Volunteer') : volunteerActionPending ? 'Joining...' : 'Join as Volunteer'}</span>
+                  <span className="text-[11px] text-slate-400">{volunteered ? 'Withdraw from this issue' : 'Help fix this issue'}</span>
                 </button>
                 <button
                   type="button"
@@ -629,6 +677,7 @@ export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
                 </button>
                 <button
                   type="button"
+                  onClick={handleShareIssue}
                   className="flex flex-col items-center gap-2 py-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100 transition-all cursor-pointer"
                 >
                   <Share2 size={18} className="text-slate-600" />
@@ -636,6 +685,22 @@ export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
                   <span className="text-[11px] text-slate-400">Spread awareness</span>
                 </button>
               </div>
+              {user && issue && user.id === issue.user_id && (issue.status || '').toLowerCase() !== 'completed' && (issue.status || '').toLowerCase() !== 'resolved' && (issue.status || '').toLowerCase() !== 'cancelled' && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={handleCancelIssue}
+                    disabled={cancelling}
+                    className={`w-full py-2.5 rounded-xl border text-xs font-700 transition-all ${
+                      cancelling
+                        ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                        : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-300 cursor-pointer'
+                    }`}
+                  >
+                    {cancelling ? 'Cancelling...' : 'Cancel Issue'}
+                  </button>
+                </div>
+              )}
               {volunteerActionError && (
                 <p className="mt-3 text-xs text-red-600">{volunteerActionError}</p>
               )}
@@ -879,31 +944,26 @@ export default function IssueDetailsPage({ onNavigate, issueId }: Props) {
           </div>
 
           <div className="bg-white rounded-2xl card-shadow p-5">
-            <h3 className="text-sm font-700 text-slate-800 mb-3">Recommended Volunteers</h3>
-            {volunteerLoading && (
-              <p className="text-xs text-slate-500">Finding suitable volunteers...</p>
+            <h3 className="text-sm font-700 text-slate-800 mb-3">Volunteers</h3>
+            {joinedVolunteersLoading && (
+              <p className="text-xs text-slate-500">Loading volunteers...</p>
             )}
-            {!volunteerLoading && volunteerError && (
-              <p className="text-xs text-slate-500">Volunteer recommendations are currently unavailable.</p>
+            {!joinedVolunteersLoading && joinedVolunteers.length === 0 && (
+              <p className="text-xs text-slate-500">No volunteers have joined yet.</p>
             )}
-            {!volunteerLoading && !volunteerError && volunteerRecommendations.length === 0 && (
-              <p className="text-xs text-slate-500">No suitable volunteers found yet.</p>
-            )}
-            {!volunteerLoading && !volunteerError && volunteerRecommendations.length > 0 && (
+            {!joinedVolunteersLoading && joinedVolunteers.length > 0 && (
               <div className="space-y-3">
-                {volunteerRecommendations.map((volunteer) => (
-                  <div key={volunteer.volunteer_id} className="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
-                    <div className="flex items-start justify-between gap-3">
+                {joinedVolunteers.map((volunteer) => (
+                  <div key={volunteer.id} className="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white text-xs font-700 flex-shrink-0">
+                        {volunteer.name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()}
+                      </div>
                       <div>
                         <div className="text-sm font-700 text-slate-800">{volunteer.name}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">{volunteer.skills}</div>
+                        <div className="text-[11px] text-slate-400">Joined {formatDate(volunteer.joined_at)}</div>
                       </div>
-                      <span className="text-[11px] font-700 text-green-700">{Math.round(volunteer.match_score * 100)}% match</span>
                     </div>
-                    <div className="text-xs text-slate-500 mt-2 flex items-center gap-1">
-                      <MapPin size={12} className="text-green-500" /> {volunteer.location}
-                    </div>
-                    <p className="text-xs text-slate-600 mt-1.5">{volunteer.reason}</p>
                   </div>
                 ))}
               </div>
