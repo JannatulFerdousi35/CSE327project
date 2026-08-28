@@ -3,10 +3,13 @@ const cors = require("cors");
 require("dotenv").config({ path: __dirname + "/.env" });
 const { Pool } = require("pg");
 const { GoogleGenAI } = require("@google/genai");
+const { OAuth2Client } = require("google-auth-library");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 const app = express();
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
