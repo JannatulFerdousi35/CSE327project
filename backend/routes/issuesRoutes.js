@@ -8,6 +8,7 @@ const requireAuth = auth && (auth.requireAuth || auth) ;
 
 const issuesController = require('../controllers/issuesController');
 const { createIssue } = require('../controllers/issuesCreateController');
+const { updateIssue } = require('../controllers/issuesUpdateController');
 
 // Public
 router.get('/issues', asyncWrapper(issuesController.listIssues));
@@ -17,5 +18,6 @@ router.get('/issues/stats', asyncWrapper(issuesController.stats));
 // Authenticated
 router.get('/issues/my-reports', requireAuth, asyncWrapper(issuesController.myReports));
 router.post('/issues', requireAuth, asyncWrapper(createIssue));
+router.patch('/issues/:id', requireAuth, asyncWrapper(updateIssue));
 
 module.exports = router;
