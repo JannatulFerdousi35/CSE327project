@@ -3,6 +3,10 @@ BEGIN;
 -- Existing users and issues are intentionally preserved. Their current schema is
 -- compatible with the integer foreign keys used by the tables below.
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+-- Adding a google ID column for "Sign in with Google"
+
 ALTER TABLE issues
     ADD COLUMN IF NOT EXISTS latitude numeric(9, 6),
     ADD COLUMN IF NOT EXISTS longitude numeric(9, 6);
