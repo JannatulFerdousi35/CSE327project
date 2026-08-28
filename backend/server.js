@@ -2013,6 +2013,54 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+app.post("/api/auth/google", async (req, res) => {
+  const { credential } = req.body || {};
+  if (typeof credential !== "string" || !credential) {
+    return res.status(400).json({ success: false, message: "Missing Google credential." });
+  }
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+
+    if (!payload?.email || !payload.email_verified) {
+      return res.status(401).json({ success: false, message: "Google account email is not verified." });
+    }
+
+    const normalizedEmail = payload.email.trim().toLowerCase();
+    const googleId = payload.sub;
+    const name = payload.name || normalizedEmail.split("@")[0];
+
+    let result = await pool.query(
+      "SELECT id, name, email, role, division, district, upazila FROM users WHERE google_id = $1 OR LOWER(email) = $2",
+      [googleId, normalizedEmail]
+    );
+    let user = result.rows[0];
+
+    if (!user) {
+      const inserted = await pool.query(
+        `INSERT INTO users (name, email, google_id, role)
+         VALUES ($1, $2, $3, 'citizen')
+         RETURNING id, name, email, role, division, district, upazila`,
+        [name, normalizedEmail, googleId]
+      );
+      user = inserted.rows[0];
+    } else if (!user.google_id) {
+      await pool.query("UPDATE users SET google_id = $1 WHERE id = $2", [googleId, user.id]);
+    }
+
+    const token = createAuthToken(user);
+    res.cookie(AUTH_COOKIE, token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 7 * 24 * 60 * 60 * 1000, path: "/" });
+    res.json({ success: true, user: publicUser(user) });
+  } catch (error) {
+    console.error("Google sign-in error:", error.message);
+    res.status(401).json({ success: false, message: "Google sign-in failed." });
+  }
+});
+
 app.get("/api/auth/me", requireAuth, (req, res) => {
   res.json({ success: true, user: publicUser(req.user) });
 });
