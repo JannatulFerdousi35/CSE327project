@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
+const asyncWrapper = require('../middleware/asyncWrapper');
+const authController = require('../controllers/authController');
 
-// Minimal placeholder routes for auth
-router.post('/signup', (req, res) => res.status(501).json({ success: false, message: 'Not implemented in this branch.' }));
-router.post('/login', (req, res) => res.status(501).json({ success: false, message: 'Not implemented in this branch.' }));
-router.post('/logout', (req, res) => res.status(501).json({ success: false, message: 'Not implemented in this branch.' }));
+// Public auth routes
+router.post('/signup', asyncWrapper(authController.signup));
+router.post('/login', asyncWrapper(authController.login));
+router.post('/logout', asyncWrapper(authController.logout));
+
 module.exports = router;
